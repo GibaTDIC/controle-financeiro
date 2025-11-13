@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Controle Financeiro</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1, h2, h3 { color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    input, select { width: 100%; box-sizing: border-box; }
+    button { padding: 5px 10px; margin-top: 5px; }
+    .total { font-weight: bold; margin-bottom: 30px; }
+  </style>
+</head>
+<body>
+
+  <h1>CONTROLE FINANCEIRO</h1>
+  <h2 id="total-investimentos">TOTAL DE INVESTIMENTOS: R$0,00</h2>
+
+  <div id="categorias"></div>
+
+  <button onclick="gerarPDF()">📄 Exportar PDF</button>
+  <button onclick="gerarImagem()">🖼️ Exportar Imagem</button>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+    import { getDatabase, ref, push, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyA7N96Ijh_MCFBbYzMSmpPK4R03aI-ZpQs",
+      authDomain: "parecer-dos-pais.firebaseapp.com",
+      databaseURL: "https://parecer-dos-pais-default-rtdb.firebaseio.com",
+      projectId: "parecer-dos-pais",
+      storageBucket: "parecer-dos-pais.firebasestorage.app",
+      messagingSenderId: "802410572893",
+      appId: "1:802410572893:web:2efb9246582631a43931b4",
+      measurementId: "G-CBW2Z6PVN9"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const categorias = ["bebidas", "feijoada", "organizacao", "contratacoes"];
+    const nomes = {
+      bebidas: "BEBIDAS (TONY)",
+      feijoada: "FEIJOADA (ELISNALDO)",
+      organizacao: "ORGANIZAÇÃO (Giba e Márcia)",
+      contratacoes: "CONTRATAÇÕES E ORGANIZAÇÃO (Marcos)"
+    };
+
+    const container = document.getElementById("categorias");
+
+    function atualizarTotalGeral() {
+      let soma = 0;
+      categorias.forEach(categoria => {
+        const totalTexto = document.getElementById(`total-${categoria}`)?.innerText;
+        const valor = parseFloat(totalTexto?.replace("Total: R$", "").replace(",", "."));
+        if (!isNaN(valor)) soma += valor;
+      });
+      document.getElementById("total-investimentos").innerText = `TOTAL DE INVESTIMENTOS: R$ ${soma.toFixed(2)}`;
+    }
+
+    categorias.forEach(categoria => {
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <h3>${nomes[categoria]} — R$0,00</h3>
+        <table id="tabela-${categoria}">
+          <thead>
+            <tr>
+              <th>DATA</th><th>DESCRIÇÃO</th><th>FORNECEDOR</th><th>QUANTIDADE</th>
+              <th>VALOR INVESTIDO</th><th>PAGO?</th><th>OBSERVAÇÕES</th><th>AÇÕES</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <td><input type="text" id="${categoria}-data" /></td>
+              <td><input type="text" id="${categoria}-descricao" /></td>
+              <td><input type="text" id="${categoria}-fornecedor" /></td>
+              <td><input type="text" id="${categoria}-quantidade" /></td>
+              <td><input type="text" id="${categoria}-valor" /></td>
+              <td>
+                <select id="${categoria}-pago">
+                  <option value="Sim">Sim</option>
+                  <option value="Não">Não</option>
+                  <option value="Parcial">Parcial</option>
+                </select>
+              </td>
+              <td><input type="text" id="${categoria}-obs" /></td>
+              <td><button onclick="salvarNovaLinha('${categoria}')">Gravar</button></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="total" id="total-${categoria}">Total: R$ 0,00</div>
+      `;
+      container.appendChild(div);
+
+      const tabela = div.querySelector("tbody");
+      const refCat = ref(db, `controleFinanceiro/${categoria}`);
+      onValue(refCat, snapshot => {
+        tabela.innerHTML = "";
+        let total = 0;
+        const dados = snapshot.val();
+        for (let id in dados) {
+          const item = dados[id];
+          const valor = parseFloat(item.valorInvestido?.replace("R$", "").replace(",", "."));
+          if (!isNaN(valor)) total += valor;
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${item.data}</td>
+            <td>${item.descricao}</td>
+            <td>${item.fornecedor}</td>
+            <td>${item.quantidade}</td>
+            <td>${item.valorInvestido}</td>
+            <td>${item.pago}</td>
+            <td>${item.observacoes}</td>
+            <td>
+              <button onclick="editarLinha('${categoria}', '${id}', this)">Editar</button>
+              <button onclick="excluirLinha('${categoria}', '${id}')">Excluir</button>
+            </td>
+          `;
+          tabela.appendChild(tr);
+        }
+        document.getElementById(`total-${categoria}`).innerText = `Total: R$ ${total.toFixed(2)}`;
+        atualizarTotalGeral();
+      });
+    });
+
+    window.salvarNovaLinha = function (categoria) {
+      const dados = {
+        data: document.getElementById(`${categoria}-data`).value,
+        descricao: document.getElementById(`${categoria}-descricao`).value,
+        fornecedor: document.getElementById(`${categoria}-fornecedor`).value,
+        quantidade: document.getElementById(`${categoria}-quantidade`).value,
+        valorInvestido: document.getElementById(`${categoria}-valor`).value,
+        pago: document.getElementById(`${categoria}-pago`).value,
+        observacoes: document.getElementById(`${categoria}-obs`).value
+      };
+      push(ref(db, `controleFinanceiro/${categoria}`), dados);
+      ["data", "descricao", "fornecedor", "quantidade", "valor", "pago", "obs"].forEach(campo => {
+        const el = document.getElementById(`${categoria}-${campo}`);
+        if (el.tagName === "SELECT") el.selectedIndex = 0;
+        else el.value = "";
+      });
+    };
+
+    window.editarLinha = function (categoria, id, btn) {
+      const tr = btn.closest("tr");
+      const tds = tr.querySelectorAll("td");
+      const valores = Array.from(tds).slice(0, 7).map(td => td.innerText);
+      tds.forEach((td, i) => {
+        if (i === 5) {
+          td.innerHTML = `
+            <select>
+              <option value="Sim" ${valores[i] === "Sim" ? "selected" : ""}>Sim</option>
+              <option value="Não" ${valores[i] === "Não" ? "selected" : ""}>Não</option>
+              <option value="Parcial" ${valores[i] === "Parcial" ? "selected" : ""}>Parcial</option>
+            </select>`;
+        } else {
+          td.innerHTML = `<input value="${valores[i]}" />`;
+        }
+      });
+
+      btn.innerText = "Salvar";
+      btn.onclick = () => {
+        const inputs = tr.querySelectorAll("input, select");
+        const novosDados = {
+          data: inputs[0].value,
+          descricao: inputs[1].value,
+          fornecedor: inputs[2].value,
+          quantidade: inputs[3].value,
+          valorInvestido: inputs[4].value,
+          pago: inputs[5].value,
+          observacoes: inputs[6].value
+        };
+        update(ref(db, `controleFinanceiro/${categoria}/${id}`), novosDados);
+
+        // Restaurar visual original
+        tds[0].innerText = novosDados.data;
+        tds[1].innerText = novosDados.descricao;
+        tds[2].innerText = novosDados.fornecedor;
+        tds[3].innerText = novosDados.quantidade;
+        tds[4].innerText = novosDados.valorInvestido;
+        tds[5].innerText = novosDados.pago;
+        tds[6].innerText = novosDados.observacoes;
+        btn.innerText = "Editar";
+        btn.onclick = () => editarLinha(categoria, id, btn);
+        atualizarTotalGeral();
+      };
+    };
+
+    window.excluirLinha = function (categoria, id) {
+      if (confirm("Deseja excluir esta linha?")) {
+        remove(ref(db, `controleFinanceiro/${categoria}/${id}`));
+      }
+    };
+
+    window.gerarPDF = function () {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.html(document.body, {
+        callback: function (doc) {
+          doc.save("controle-financeiro.pdf");
+        },
+        x: 10,
+        y: 10
+      });
+    };
+
+    window.gerarImagem = function () {
+      html2canvas(document.body).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "controle-financeiro.png";
+        link.href = canvas.toDataURL();
+        link.click();
+      });
+    };
+  </script>
+</body>
+</html>
